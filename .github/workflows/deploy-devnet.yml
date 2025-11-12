@@ -13,73 +13,43 @@ jobs:
   build-deploy:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write
-
-    env:
-      CLUSTER: devnet
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Write your devnet keypair to a file in the repo workspace
+      # --------------------------------------------------------
+      # Write Solana keypair from GitHub secret
+      # --------------------------------------------------------
       - name: Write Solana keypair
-        shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p .github/keys
-          echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > .github/keys/id.json
-          chmod 600 .github/keys/id.json
+          mkdir -p ~/.config/solana
+          echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > ~/.config/solana/id.json
 
+      # --------------------------------------------------------
+      # Build & Deploy USING DOCKER (NO Rust on host)
+      # --------------------------------------------------------
       - name: Build & Deploy via Anchor Docker
-        shell: bash
+        env:
+          CLUSTER: devnet
         run: |
           set -euo pipefail
 
-          # Decide RPC (secret or default devnet)
-          RPC="${{ secrets.SOLANA_RPC_URL }}"
-          if [ -z "$RPC" ]; then
-            RPC="https://api.devnet.solana.com"
-          fi
-
-          # Run everything inside the Anchor Docker image
+          # Use public Anchor docker image (works out-of-the-box)
           docker run --rm \
-            -v "$PWD":/workdir \
-            -w /workdir \
-            -v "$PWD/.github/keys/id.json":/root/.config/solana/id.json \
-            -e ANCHOR_WALLET=/root/.config/solana/id.json \
-            -e ANCHOR_PROVIDER_URL="$RPC" \
-            -e CLUSTER="${CLUSTER}" \
+            -v "$PWD":/work \
+            -w /work \
+            -v "$HOME/.config/solana":/root/.config/solana \
             projectserum/anchor:latest \
-            bash -lc '
-              set -euo pipefail
-              echo "Anchor version:"
-              anchor --version
-              echo "Solana version:"
-              solana --version
+            bash -c "
+              anchor build &&
+              anchor deploy --provider.cluster $CLUSTER &&
+              solana address -k target/deploy/claim-keypair.json > program-id.txt &&
+              cp target/idl/claim.json idl.json
+            "
 
-              # Build + deploy
-              anchor build
-              anchor deploy --provider.cluster "$CLUSTER"
-
-              # Export PROGRAM_ID and IDL into repo folder
-              if [ -f target/deploy/claim-keypair.json ]; then
-                PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
-                echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
-              else
-                echo "claim-keypair.json not found!" >&2
-                exit 1
-              fi
-
-              if [ -f target/idl/claim.json ]; then
-                cp target/idl/claim.json idl.json
-              else
-                echo "IDL target/idl/claim.json not found!" >&2
-                exit 1
-              fi
-            '
-
+      # --------------------------------------------------------
+      # Upload build artifacts
+      # --------------------------------------------------------
       - name: Upload artifacts (PROGRAM_ID + IDL)
         uses: actions/upload-artifact@v4
         with:
@@ -88,18 +58,18 @@ jobs:
             program-id.txt
             idl.json
 
+      # --------------------------------------------------------
+      # Optional: commit new program ID back to repo
+      # --------------------------------------------------------
       - name: Commit program id (optional)
         if: always()
-        shell: bash
         run: |
           if [ -f program-id.txt ]; then
-            PROGRAM_ID=$(cut -d= -f2 program-id.txt)
+            PROGRAM_ID=$(cat program-id.txt)
             echo "$PROGRAM_ID" > PROGRAM_ID.devnet
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add PROGRAM_ID.devnet || true
-            git commit -m "chore: update devnet program id -> $PROGRAM_ID" || echo "no changes"
+            git add PROGRAM_ID.devnet
+            git commit -m "Update devnet program id -> $PROGRAM_ID" || true
             git push || true
-          else
-            echo "program-id.txt missing — skipping commit."
           fi
