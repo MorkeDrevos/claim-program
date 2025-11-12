@@ -25,8 +25,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      # Use nightly so Cargo understands lockfile v4 (-Z next-lockfile-bump)
+      - name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Normalize Cargo.lock (nightly)
+        run: cargo update -Z next-lockfile-bump
 
       # ---- Solana CLI from release tarball ----
       - name: Install Solana CLI (tarball)
@@ -40,7 +44,7 @@ jobs:
           export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
-      # ---- Anchor CLI (official prebuilt via NPM) ----
+      # ---- Anchor CLI (via NPM, matches your current approach) ----
       - name: Install Anchor CLI
         run: |
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
