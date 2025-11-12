@@ -6,8 +6,3 @@ resolver = "2"        # <— add this
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
-
-[patch.crates-io]
-# Pin to versions that still compile on rustc 1.75.0-dev (Solana SBF toolchain)
-toml_datetime = "=0.7.2"
-toml_edit     = "=0.22.9"
