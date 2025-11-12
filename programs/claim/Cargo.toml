@@ -9,3 +9,7 @@ name = "claim"
 
 [dependencies]
 anchor-lang = "0.29.0"
+
+[patch.crates-io]
+toml_edit = { version = "=0.22.9", package = "toml_edit" }
+toml_datetime = { version = "=0.7.2", package = "toml_datetime" }
