@@ -1,5 +1,6 @@
 [workspace]
 members = ["programs/claim"]
+resolver = "2"        # <— add this
 
 [profile.release]
 lto = "fat"
