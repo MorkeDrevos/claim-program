@@ -70,22 +70,22 @@ jobs:
       - name: Prepare lockfile (v4, force regenerate)
         shell: bash
         run: |
-          set -euo pipefail
-          rustup default nightly
-          echo "PWD: $(pwd)"
-          ls -la
-          # kill any stale lockfile at workspace root
-          rm -f Cargo.lock
-          # recreate as v4 deterministically
-          cargo +nightly generate-lockfile -Z next-lockfile-bump
+         set -euo pipefail
+         rustup default nightly
+         cd "${GITHUB_WORKSPACE}" || exit 1
+         echo "Root dir: $(pwd)"
+         find . -name Cargo.lock -type f -delete
+         echo "Deleted all Cargo.lock files"
+         cargo +nightly generate-lockfile -Z next-lockfile-bump
 
       - name: Build
         shell: bash
         run: |
-          set -euo pipefail
-          # clean just in case there are stale targets
-          cargo clean || true
-          ANCHOR_NO_CONFIG_WARN=1 anchor build
+         set -euo pipefail
+         cd "${GITHUB_WORKSPACE}" || exit 1
+         echo "Building from: $(pwd)"
+         cargo clean || true
+         ANCHOR_NO_CONFIG_WARN=1 anchor build
 
       # ---- Deploy ----
       - name: Deploy (devnet)
