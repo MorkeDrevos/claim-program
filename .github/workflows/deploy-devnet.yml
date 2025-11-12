@@ -19,47 +19,47 @@ jobs:
     env:
       SOLANA_VERSION: "1.18.22"
       ANCHOR_CLI_VERSION: "0.29.0"
-      # If you didn't set SOLANA_RPC_URL secret, we'll fall back in bash later:
-      RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+      CLUSTER: "devnet"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install toolchain + system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq bzip2 build-essential pkg-config libssl-dev libudev-dev curl
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # ---- Solana CLI from release tarball ----
       - name: Install Solana CLI (tarball)
         shell: bash
         run: |
           set -euo pipefail
-          cd $HOME
-          curl -sSfL -o solana.tar.bz2 \
-            https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2
-          tar -xjf solana.tar.bz2
-          echo "$HOME/solana-release/bin" >> $GITHUB_PATH
-          echo "PATH after add: $PATH"
-          "$HOME/solana-release/bin/solana" --version
+          curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          mkdir -p "$HOME/solana-release/bin"
+          tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
+          echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
+          solana --version
 
-      # (Keep your steps above as-is: Checkout, Install deps, Install Rust, Install Solana CLI)
-
-      - name: Install Anchor via AVM (prebuilt)
+      # ---- Anchor prebuilt binary (no compiling) ----
+      - name: Install Anchor (prebuilt tarball)
         shell: bash
         run: |
           set -euo pipefail
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          avm --version
-          avm install ${ANCHOR_CLI_VERSION}
-          avm use ${ANCHOR_CLI_VERSION}
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+          mkdir -p "$GITHUB_WORKSPACE/bin"
+          echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
+
+          ARCH="x86_64-unknown-linux-gnu"
+          VER="${ANCHOR_CLI_VERSION:-0.29.0}"
+          URL="https://github.com/coral-xyz/anchor/releases/download/v${VER}/anchor-cli-v${VER}-${ARCH}.tar.gz"
+
+          echo "Downloading $URL"
+          curl -Ls "$URL" | tar -xz -C "$GITHUB_WORKSPACE/bin"
+          chmod +x "$GITHUB_WORKSPACE/bin/anchor"
           anchor --version
 
+      - name: Install jq (for IDL export)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # ---- Keypair + RPC (safe fallback) ----
       - name: Configure keypair & RPC
         shell: bash
         run: |
@@ -67,11 +67,12 @@ jobs:
           mkdir -p ~/.config/solana
           echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > ~/.config/solana/id.json
           chmod 600 ~/.config/solana/id.json
-          # Bash fallback if secret not set:
-          SOL_RPC="${RPC_URL:-https://api.devnet.solana.com}"
-          solana config set --url "$SOL_RPC"
+          RPC="${{ secrets.SOLANA_RPC_URL }}"
+          if [ -z "${RPC}" ]; then RPC="https://api.devnet.solana.com"; fi
+          solana config set --url "$RPC"
           solana address
 
+      # ---- Build & Deploy ----
       - name: Build
         run: anchor build
 
@@ -79,12 +80,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          anchor deploy --provider.cluster devnet
-          PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
-          echo "PROGRAM_ID=$PROGRAM_ID" | tee program-id.txt
+          anchor deploy --provider.cluster ${CLUSTER}
+          PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json || true)
+          echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
 
       - name: Export IDL
+        shell: bash
         run: |
+          set -euo pipefail
           jq . target/idl/claim.json > idl.json
 
       - name: Upload artifacts
@@ -95,18 +98,20 @@ jobs:
             program-id.txt
             idl.json
 
+      # Optional: commit the program id back to the repo
       - name: Commit program id (optional)
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
           if [ -f program-id.txt ]; then
             PROGRAM_ID=$(cat program-id.txt)
             echo "$PROGRAM_ID" > PROGRAM_ID.devnet
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add PROGRAM_ID.devnet
-            git commit -m "chore: update devnet program id -> $PROGRAM_ID" || true
+            git add PROGRAM_ID.devnet || true
+            git commit -m "chore: update devnet program id -> $PROGRAM_ID" || echo "no changes"
             git push || true
           else
-            echo "program-id.txt missing — skipping commit"
+            echo "program-id.txt missing — skipping commit."
           fi
