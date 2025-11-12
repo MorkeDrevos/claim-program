@@ -25,14 +25,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Toolchains ---
+      # Toolchains: 1.74 to write a v3 lockfile, nightly to build
       - name: Install Rust 1.74 (for v3 Cargo.lock)
         uses: dtolnay/rust-toolchain@1.74.0
 
       - name: Install Rust nightly (for build)
         uses: dtolnay/rust-toolchain@nightly
 
-      # --- Solana CLI ---
+      # Solana CLI
       - name: Install Solana CLI (tarball)
         shell: bash
         run: |
@@ -44,7 +44,7 @@ jobs:
           export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
-      # --- Anchor CLI (prebuilt) ---
+      # Anchor CLI
       - name: Install Anchor CLI
         run: |
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
@@ -53,7 +53,7 @@ jobs:
       - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # --- Keypair + RPC ---
+      # Keypair + RPC
       - name: Configure keypair & RPC
         shell: bash
         run: |
@@ -66,28 +66,41 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # --- Force v3 lockfile & pin compatible toml_* crates ---
-      - name: Prepare v3 Cargo.lock (pin deps on 1.74)
+      # --- Make sure no patch blocks remain anywhere (root or programs/*) ---
+      - name: Sanitize Cargo.toml (remove [patch.crates-io] blocks)
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
+          sanitize() {
+            local file="$1"
+            [ -f "$file" ] || return 0
+            if grep -q '^\[patch\.crates-io\]' "$file"; then
+              awk 'BEGIN{skip=0}
+                   /^\[patch\.crates-io\]/{skip=1; next}
+                   skip && /^\[/{skip=0}
+                   !skip{print}' "$file" > "$file.tmp"
+              mv "$file.tmp" "$file"
+              echo "Removed [patch.crates-io] from $file"
+            fi
+          }
+          sanitize Cargo.toml
+          find programs -maxdepth 2 -name Cargo.toml -print0 | while IFS= read -r -d '' f; do sanitize "$f"; done
 
-          # remove any existing lockfiles (root or nested)
+      # --- Create a v3 lockfile on Rust 1.74 and pin transitive versions ---
+      - name: Prepare v3 Cargo.lock (Rust 1.74, pin toml deps)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup default 1.74.0
+          # start from scratch to avoid stale state
           find . -name Cargo.lock -type f -print -delete || true
+          cargo generate-lockfile
+          cargo update -p toml_edit --precise 0.23.2
+          cargo update -p toml_datetime --precise 0.7.2
+          echo "Lockfile header:"
+          head -n 5 Cargo.lock || true
 
-          # write a v3 lockfile with Rust 1.74
-          rustup run 1.74.0 cargo generate-lockfile
-
-          # IMPORTANT: pin toml_edit first (it depends on toml_datetime 0.7.2)
-          rustup run 1.74.0 cargo update -p toml_edit --precise 0.22.9
-          rustup run 1.74.0 cargo update -p toml_datetime --precise 0.7.2
-
-          # sanity check
-          grep -E 'toml_edit|toml_datetime' -n Cargo.lock || true
-          head -n 8 Cargo.lock || true
-
-      # --- Build with NIGHTLY but do not rewrite the lockfile ---
+      # --- Build on nightly, do NOT touch the lockfile ---
       - name: Build
         env:
           RUSTUP_TOOLCHAIN: nightly
