@@ -66,29 +66,31 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # --- Force-lockfile v3 AND pin toml* to rustc-1.75-compatible versions ---
+      # --- Force v3 lockfile & pin compatible toml_* crates ---
       - name: Prepare v3 Cargo.lock (pin deps on 1.74)
         shell: bash
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
 
-          # wipe any existing lockfiles (root or nested)
+          # remove any existing lockfiles (root or nested)
           find . -name Cargo.lock -type f -print -delete || true
 
-          # generate v3 lockfile with rust 1.74, then pin the crates
+          # write a v3 lockfile with Rust 1.74
           rustup run 1.74.0 cargo generate-lockfile
+
+          # IMPORTANT: pin toml_edit first (it depends on toml_datetime 0.7.2)
+          rustup run 1.74.0 cargo update -p toml_edit --precise 0.22.9
           rustup run 1.74.0 cargo update -p toml_datetime --precise 0.7.2
-          rustup run 1.74.0 cargo update -p toml_edit      --precise 0.22.9
 
-          # verify pins landed in the lockfile
-          grep -A1 'name = "toml_datetime"' Cargo.lock || true
-          grep -A1 'name = "toml_edit"'      Cargo.lock || true
-          head -n 5 Cargo.lock || true
+          # sanity check
+          grep -E 'toml_edit|toml_datetime' -n Cargo.lock || true
+          head -n 8 Cargo.lock || true
 
-      # --- Build with nightly WITHOUT touching the lockfile ---
+      # --- Build with NIGHTLY but do not rewrite the lockfile ---
       - name: Build
-        env: { RUSTUP_TOOLCHAIN: nightly }
+        env:
+          RUSTUP_TOOLCHAIN: nightly
         shell: bash
         run: |
           set -euo pipefail
@@ -96,7 +98,8 @@ jobs:
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
       - name: Deploy (devnet)
-        env: { RUSTUP_TOOLCHAIN: nightly }
+        env:
+          RUSTUP_TOOLCHAIN: nightly
         shell: bash
         run: |
           set -euo pipefail
