@@ -25,23 +25,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Use a single, modern toolchain that toml_parser supports
+      # Install a single Rust toolchain that toml_parser supports
       - name: Install Rust 1.76
         uses: dtolnay/rust-toolchain@1.76.0
 
-      - name: Install Solana CLI (tarball)
+      - name: Set Rust 1.76 as default + override
         shell: bash
         run: |
           set -euo pipefail
-          echo "Downloading Solana ${SOLANA_VERSION}..."
-          curl -sSfL -o solana.tar.bz2 \
-            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
-          echo "Extracting..."
-          mkdir -p "$HOME/solana"
-          tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana"
-          echo "$HOME/solana/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/solana/bin:$PATH"
-          echo "Solana CLI version:"
+          rustup default 1.76.0
+          # Ensure this repo always uses 1.76, even if a .rust-toolchain exists
+          rustup override set 1.76.0
+          rustc --version
+          cargo --version
+
+      # Install Solana CLI via official installer (doesn't mess with rustup)
+      - name: Install Solana CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           solana --version
 
       - name: Install Anchor CLI
@@ -93,20 +98,19 @@ jobs:
           done
 
       - name: Build
-        env:
-          RUSTUP_TOOLCHAIN: "1.76.0"
         shell: bash
         run: |
           set -euo pipefail
+          rustc --version
+          cargo --version
           cargo clean || true
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
       - name: Deploy (devnet)
-        env:
-          RUSTUP_TOOLCHAIN: "1.76.0"
         shell: bash
         run: |
           set -euo pipefail
+          rustc --version
           anchor deploy --provider.cluster "${CLUSTER}"
           if [ -f target/deploy/claim-keypair.json ]; then
             PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
