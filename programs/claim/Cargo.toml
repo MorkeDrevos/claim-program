@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "claim"
 crate-type = ["cdylib", "lib"]
+name = "claim"
 
 [dependencies]
 anchor-lang = "0.29.0"
