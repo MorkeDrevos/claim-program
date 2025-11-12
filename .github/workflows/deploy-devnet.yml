@@ -3,7 +3,7 @@ name: Deploy Anchor (devnet)
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
     paths:
       - "programs/**"
       - "Anchor.toml"
@@ -19,7 +19,7 @@ jobs:
     env:
       SOLANA_VERSION: "1.18.22"
       ANCHOR_CLI_VERSION: "0.29.0"
-      CLUSTER: "devnet"
+      CLUSTER: devnet
 
     steps:
       - name: Checkout
@@ -36,28 +36,27 @@ jobs:
           curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
           mkdir -p "$HOME/solana-release"
           tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
-          # make available to later steps AND this step
           echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
-      # ---- Install Anchor via NPM (official prebuilt binary) ----
-- name: Install Anchor CLI
-  run: |
-    npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
-    anchor --version
+      # ---- Anchor CLI (official prebuilt via NPM) ----
+      - name: Install Anchor CLI
+        run: |
+          npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
+          anchor --version
 
       - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # ---- Keypair + RPC (safe fallback) ----
+      # ---- Keypair + RPC ----
       - name: Configure keypair & RPC
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p ~/.config/solana
-          echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > ~/.config/solana/id.json
-          chmod 600 ~/.config/solana/id.json
+          mkdir -p "$HOME/.config/solana"
+          echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > "$HOME/.config/solana/id.json"
+          chmod 600 "$HOME/.config/solana/id.json"
           RPC="${{ secrets.SOLANA_RPC_URL }}"
           if [ -z "${RPC}" ]; then RPC="https://api.devnet.solana.com"; fi
           solana config set --url "$RPC"
@@ -71,15 +70,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          anchor deploy --provider.cluster ${CLUSTER}
-          PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json || true)
-          echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
+          anchor deploy --provider.cluster "${CLUSTER}"
+          if [ -f target/deploy/claim-keypair.json ]; then
+            PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
+            echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
+          fi
 
       - name: Export IDL
         shell: bash
         run: |
           set -euo pipefail
-          jq . target/idl/claim.json > idl.json
+          cp target/idl/claim.json idl.json
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -94,7 +95,6 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set -euo pipefail
           if [ -f program-id.txt ]; then
             PROGRAM_ID=$(cat program-id.txt)
             echo "$PROGRAM_ID" > PROGRAM_ID.devnet
