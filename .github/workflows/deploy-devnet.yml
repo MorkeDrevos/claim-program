@@ -25,26 +25,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---------- Rust toolchain (Anchor 0.29 needs >= 1.76) ----------
+      # Use a single, modern toolchain that toml_parser supports
       - name: Install Rust 1.76
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.76.0"
+        uses: dtolnay/rust-toolchain@1.76.0
 
-      # ---------- Solana CLI ----------
       - name: Install Solana CLI (tarball)
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSL -o solana.tar.bz2 \
-            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
           mkdir -p "$HOME/solana-release"
           tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
           echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
-      # ---------- Anchor CLI ----------
       - name: Install Anchor CLI
         run: |
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
@@ -53,7 +47,6 @@ jobs:
       - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # ---------- Keypair + RPC ----------
       - name: Configure keypair & RPC
         shell: bash
         run: |
@@ -63,14 +56,15 @@ jobs:
           chmod 600 "$HOME/.config/solana/id.json"
 
           RPC="${{ secrets.SOLANA_RPC_URL }}"
-          if [ -z "${RPC}" ]; then
+          if [ -z "$RPC" ]; then
             RPC="https://api.devnet.solana.com"
           fi
 
           solana config set --url "$RPC"
           solana address
 
-      # ---------- Optional: strip old [patch.crates-io] blocks ----------
+      # Optional but safe: strip any [patch.crates-io] blocks that might
+      # conflict with the toolchain
       - name: Sanitize Cargo.toml (remove [patch.crates-io] blocks)
         shell: bash
         run: |
@@ -89,41 +83,37 @@ jobs:
           }
 
           sanitize Cargo.toml
-          find programs -maxdepth 2 -name Cargo.toml -print0 \
-            | while IFS= read -r -d '' f; do sanitize "$f"; done
+          find programs -maxdepth 2 -name Cargo.toml -print0 | while IFS= read -r -d '' f; do
+            sanitize "$f"
+          done
 
-      # ---------- Build ----------
       - name: Build
+        env:
+          RUSTUP_TOOLCHAIN: "1.76.0"
         shell: bash
         run: |
           set -euo pipefail
           cargo clean || true
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
-      # ---------- Deploy to devnet ----------
       - name: Deploy (devnet)
-        shell: bash
         env:
-          CLUSTER: "${{ env.CLUSTER }}"
+          RUSTUP_TOOLCHAIN: "1.76.0"
+        shell: bash
         run: |
           set -euo pipefail
           anchor deploy --provider.cluster "${CLUSTER}"
-
           if [ -f target/deploy/claim-keypair.json ]; then
             PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
             echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
-          else
-            echo "claim-keypair.json not found; skipping PROGRAM_ID export"
           fi
 
-      # ---------- Export IDL ----------
       - name: Export IDL
         shell: bash
         run: |
           set -euo pipefail
           cp target/idl/claim.json idl.json
 
-      # ---------- Upload artifacts ----------
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -132,7 +122,6 @@ jobs:
             program-id.txt
             idl.json
 
-      # ---------- Optionally commit PROGRAM_ID.devnet ----------
       - name: Commit program id (optional)
         if: always()
         shell: bash
