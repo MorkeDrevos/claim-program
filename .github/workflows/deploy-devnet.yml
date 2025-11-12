@@ -14,58 +14,71 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write  # to commit program id file back if desired
+      contents: write
 
     env:
       SOLANA_VERSION: "1.18.22"
       ANCHOR_CLI_VERSION: "0.29.0"
-      CLUSTER: "devnet"
+      # If you didn't set SOLANA_RPC_URL secret, we'll fall back in bash later:
+      RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install toolchain + system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq bzip2 build-essential pkg-config libssl-dev libudev-dev curl
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Solana CLI
+      - name: Install Solana CLI (tarball)
+        shell: bash
         run: |
-          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-          solana --version
+          set -euo pipefail
+          cd $HOME
+          curl -sSfL -o solana.tar.bz2 \
+            https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2
+          tar -xjf solana.tar.bz2
+          echo "$HOME/solana-release/bin" >> $GITHUB_PATH
+          echo "PATH after add: $PATH"
+          "$HOME/solana-release/bin/solana" --version
 
-      - name: Install Anchor (via avm)
+      - name: Install Anchor CLI
+        shell: bash
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked
-          avm install ${ANCHOR_CLI_VERSION}
-          avm use ${ANCHOR_CLI_VERSION}
+          set -euo pipefail
+          cargo install --git https://github.com/coral-xyz/anchor --tag v${ANCHOR_CLI_VERSION} anchor-cli --locked
           anchor --version
 
       - name: Configure keypair & RPC
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p ~/.config/solana
           echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > ~/.config/solana/id.json
           chmod 600 ~/.config/solana/id.json
-          if [ -n "${{ secrets.SOLANA_RPC_URL }}" ]; then
-            solana config set --url "${{ secrets.SOLANA_RPC_URL }}"
-          else
-            solana config set --url https://api.devnet.solana.com
-          fi
-          solana config get
+          # Bash fallback if secret not set:
+          SOL_RPC="${RPC_URL:-https://api.devnet.solana.com}"
+          solana config set --url "$SOL_RPC"
+          solana address
 
       - name: Build
         run: anchor build
 
       - name: Deploy (devnet)
+        shell: bash
         run: |
-          anchor deploy --provider.cluster ${CLUSTER}
+          set -euo pipefail
+          anchor deploy --provider.cluster devnet
           PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
           echo "PROGRAM_ID=$PROGRAM_ID" | tee program-id.txt
 
       - name: Export IDL
         run: |
           jq . target/idl/claim.json > idl.json
-          echo "{}" > _done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -75,14 +88,18 @@ jobs:
             program-id.txt
             idl.json
 
-      # Optional: commit program id file back into repo
       - name: Commit program id (optional)
         if: always()
+        shell: bash
         run: |
-          PROGRAM_ID=$(cat program-id.txt)
-          echo "$PROGRAM_ID" > PROGRAM_ID.devnet
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add PROGRAM_ID.devnet || true
-          git commit -m "chore: update devnet program id -> $PROGRAM_ID" || echo "no changes"
-          git push || true
+          if [ -f program-id.txt ]; then
+            PROGRAM_ID=$(cat program-id.txt)
+            echo "$PROGRAM_ID" > PROGRAM_ID.devnet
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add PROGRAM_ID.devnet
+            git commit -m "chore: update devnet program id -> $PROGRAM_ID" || true
+            git push || true
+          else
+            echo "program-id.txt missing — skipping commit"
+          fi
