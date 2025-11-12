@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
-// If later you read sysvars like Clock, uncomment the next line:
-// use anchor_lang::solana_program::sysvar::Sysvar;
+use anchor_lang::solana_program::sysvar::{self, Sysvar}; // 👈 this fixes the get() error
 
 declare_id!("CLA1m111111111111111111111111111111111111111");
 
@@ -9,16 +8,20 @@ pub mod claim {
     use super::*;
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
-        // Anchor 0.29: bumps are exposed on Context via a map.
+        // Safe bump access on Anchor 0.29
         let escrow_auth_bump = *ctx
             .bumps
             .get("escrow_auth")
             .expect("escrow_auth bump not found");
 
-        // If you need signer seeds for CPI/signature:
+        // Example usage of signer seeds
         let _signer_seeds: &[&[u8]] = &[b"escrow_auth", &[escrow_auth_bump]];
 
-        // trivial example: bump a counter on Pool
+        // Example sysvar access (this is where get() lives)
+        let _clock = Clock::get()?; // 👈 now compiles, since we imported Sysvar
+        msg!("Blocktime: {}", _clock.unix_timestamp);
+
+        // simple counter increment
         let pool = &mut ctx.accounts.pool;
         pool.total_claims = pool
             .total_claims
@@ -31,18 +34,16 @@ pub mod claim {
 
 #[derive(Accounts)]
 pub struct Claim<'info> {
-    /// The user calling the claim instruction
     #[account(mut)]
     pub claimer: Signer<'info>,
 
-    /// CHECK: PDA authority (seed + bump constraint makes this safe)
+    /// CHECK: PDA authority (seed + bump ensures safety)
     #[account(
         seeds = [b"escrow_auth"],
         bump
     )]
     pub escrow_auth: AccountInfo<'info>,
 
-    /// A simple on-chain state account tied to the escrow_auth PDA
     #[account(
         mut,
         seeds = [b"pool", escrow_auth.key().as_ref()],
