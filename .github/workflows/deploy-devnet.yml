@@ -20,6 +20,7 @@ jobs:
       SOLANA_VERSION: "1.18.22"
       ANCHOR_CLI_VERSION: "0.29.0"
       CLUSTER: devnet
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
@@ -43,7 +44,9 @@ jobs:
 
       # ---- Anchor CLI (official prebuilt via NPM) ----
       - name: Install Anchor CLI
+        shell: bash
         run: |
+          set -euo pipefail
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
           anchor --version
 
@@ -63,16 +66,18 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # ---- Build & Deploy ----
+      # ---- Build (force clean) ----
       - name: Build
         shell: bash
         run: |
           set -euo pipefail
           rustup default nightly
+          cargo clean || true
+          rm -rf target || true
           cargo +nightly update -Z next-lockfile-bump
-          cargo +nightly build
-          anchor build
+          anchor build -- --locked
 
+      # ---- Deploy ----
       - name: Deploy (devnet)
         shell: bash
         run: |
@@ -102,6 +107,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
           if [ -f program-id.txt ]; then
             PROGRAM_ID=$(cat program-id.txt)
             echo "$PROGRAM_ID" > PROGRAM_ID.devnet
