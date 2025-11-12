@@ -18,7 +18,7 @@ jobs:
 
     env:
       CLUSTER: devnet
-      ANCHOR_DOCKER_TAG: "v0.29.0"  # match your Anchor version
+      ANCHOR_DOCKER_TAG: "latest"  # match your Anchor version
 
     steps:
       - name: Checkout
@@ -54,7 +54,7 @@ jobs:
             -w /workdir \
             -e ANCHOR_PROVIDER_URL="$RPC_URL" \
             -e CLUSTER="$CLUSTER" \
-            solanafoundation/anchor:${ANCHOR_DOCKER_TAG} \
+            docker run --rm ... solanafoundation/anchor:0.29.0 ... \
             bash -lc '
               set -euo pipefail
               echo "Anchor version inside container:"
