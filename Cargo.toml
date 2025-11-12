@@ -6,7 +6,4 @@ resolver = "2"
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
-
-[patch.crates-io]
-# Force an indexmap version that compiles on rustc 1.75.0-dev (Solana BPF)
-indexmap = "=2.0.0"
+overflow-checks = true
