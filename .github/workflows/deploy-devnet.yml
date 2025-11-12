@@ -90,15 +90,16 @@ jobs:
       - name: Prepare v3 Cargo.lock (Rust 1.74, pin toml deps)
         shell: bash
         run: |
-          set -euo pipefail
-          rustup default 1.74.0
-          # start from scratch to avoid stale state
-          find . -name Cargo.lock -type f -print -delete || true
-          cargo generate-lockfile
-          cargo update -p toml_edit --precise 0.23.2
-          cargo update -p toml_datetime --precise 0.7.2
-          echo "Lockfile header:"
-          head -n 5 Cargo.lock || true
+         set -euo pipefail
+         rustup default 1.74.0
+         # start clean to avoid mismatched lockfiles
+         find . -name Cargo.lock -type f -print -delete || true
+         cargo generate-lockfile
+         # force-pin transitive versions to stay within Rust 1.74 compatibility
+         cargo update -p toml_edit --precise 0.23.2 || true
+         cargo update -p toml_datetime --precise 0.7.2 || true
+         echo "Lockfile header:"
+         head -n 5 Cargo.lock || true
 
       # --- Build on nightly, do NOT touch the lockfile ---
       - name: Build
