@@ -25,31 +25,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Use a single, modern toolchain that toml_parser supports
+      # ---- RUST TOOLCHAIN 1.76.0 (FIX rustc 1.75.0-dev) ----
       - name: Install Rust 1.76
-        uses: dtolnay/rust-toolchain@1.76.0
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.76.0
 
-      # (extra safe) make 1.76 the default + override
-      - name: Set Rust 1.76 as default + override
+      - name: Show rustc version
+        run: rustc --version
+
+      # ---- SOLANA CLI ----
+      - name: Install Solana CLI (tarball)
         shell: bash
         run: |
           set -euo pipefail
-          rustup default 1.76.0
-          rustup override set 1.76.0
-          rustc --version
-          cargo --version
-
-      # ---- FIXED: install Solana CLI from GitHub tarball ----
-      - name: Install Solana CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -L "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
-            -o solana.tar.bz2
+          curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
           mkdir -p "$HOME/solana-release"
           tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
           echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
       - name: Install Anchor CLI
@@ -76,42 +69,19 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # Optional but safe: strip any [patch.crates-io] blocks that might
-      # conflict with the toolchain
-      - name: Sanitize Cargo.toml (remove [patch.crates-io] blocks)
-        shell: bash
-        run: |
-          set -euo pipefail
-          sanitize() {
-            local file="$1"
-            [ -f "$file" ] || return 0
-            if grep -q '^\[patch\.crates-io\]' "$file"; then
-              awk 'BEGIN{skip=0}
-                   /^\[patch\.crates-io\]/{skip=1; next}
-                   skip && /^\[/{skip=0}
-                   !skip{print}' "$file" > "$file.tmp"
-              mv "$file.tmp" "$file"
-              echo "Removed [patch-crates-io] from $file"
-            fi
-          }
-
-          sanitize Cargo.toml
-          find programs -maxdepth 2 -name Cargo.toml -print0 | while IFS= read -r -d '' f; do
-            sanitize "$f"
-          done
+      # 🚫 IMPORTANT: we REMOVED the "Sanitize Cargo.toml" step here
+      # so your [patch.crates-io] section with toml_edit = "=0.23.2"
+      # and toml_parser = "=1.0.3" stays in place.
 
       - name: Build
-        env:
-          RUSTUP_TOOLCHAIN: "1.76.0"
         shell: bash
         run: |
           set -euo pipefail
+          rustc --version
           cargo clean || true
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
       - name: Deploy (devnet)
-        env:
-          RUSTUP_TOOLCHAIN: "1.76.0"
         shell: bash
         run: |
           set -euo pipefail
