@@ -20,17 +20,21 @@ jobs:
       SOLANA_VERSION: "1.18.22"
       ANCHOR_CLI_VERSION: "0.29.0"
       CLUSTER: devnet
-      CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Use nightly for Cargo.lock v4 compatibility
-      - name: Install Rust nightly
+      # --- Toolchains ---
+      # 1) Older stable used ONLY to write a v3 Cargo.lock
+      - name: Install Rust 1.74 (for v3 Cargo.lock)
+        uses: dtolnay/rust-toolchain@1.74.0
+
+      # 2) Nightly used for the actual build
+      - name: Install Rust nightly (for build)
         uses: dtolnay/rust-toolchain@nightly
 
-      # ---- Solana CLI from release tarball ----
+      # --- Solana CLI ---
       - name: Install Solana CLI (tarball)
         shell: bash
         run: |
@@ -42,18 +46,16 @@ jobs:
           export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
-      # ---- Anchor CLI (official prebuilt via NPM) ----
+      # --- Anchor CLI (prebuilt) ---
       - name: Install Anchor CLI
-        shell: bash
         run: |
-          set -euo pipefail
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
           anchor --version
 
       - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # ---- Keypair + RPC ----
+      # --- Keypair + RPC ---
       - name: Configure keypair & RPC
         shell: bash
         run: |
@@ -66,29 +68,34 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # ---- Build (force clean) ----
-      - name: Prepare lockfile (v4, force regenerate)
+      # --- Force-lockfile as v3 with Rust 1.74 ---
+      - name: Prepare v3 Cargo.lock (delete & regenerate with 1.74)
         shell: bash
         run: |
-         set -euo pipefail
-         rustup default nightly
-         cd "${GITHUB_WORKSPACE}" || exit 1
-         echo "Root dir: $(pwd)"
-         find . -name Cargo.lock -type f -delete
-         echo "Deleted all Cargo.lock files"
-         cargo +nightly generate-lockfile -Z next-lockfile-bump
+          set -euo pipefail
+          echo "Repo root: $GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          # wipe any existing lockfiles (root or nested)
+          find . -name Cargo.lock -type f -print -delete || true
+          # regenerate using Rust 1.74 (writes v3 lockfile)
+          rustup run 1.74.0 cargo generate-lockfile
+          echo "Lockfile header:"
+          head -n 5 Cargo.lock || true
 
+      # --- Build with NIGHTLY but DO NOT rewrite the lockfile ---
       - name: Build
+        env:
+          RUSTUP_TOOLCHAIN: nightly
         shell: bash
         run: |
-         set -euo pipefail
-         cd "${GITHUB_WORKSPACE}" || exit 1
-         echo "Building from: $(pwd)"
-         cargo clean || true
-         ANCHOR_NO_CONFIG_WARN=1 anchor build
+          set -euo pipefail
+          cargo clean || true
+          # ensure we don't rewrite Cargo.lock to v4
+          ANCHOR_NO_CONFIG_WARN=1 anchor build
 
-      # ---- Deploy ----
       - name: Deploy (devnet)
+        env:
+          RUSTUP_TOOLCHAIN: nightly
         shell: bash
         run: |
           set -euo pipefail
@@ -112,12 +119,10 @@ jobs:
             program-id.txt
             idl.json
 
-      # Optional: commit the program id back to the repo
       - name: Commit program id (optional)
         if: always()
         shell: bash
         run: |
-          set -euo pipefail
           if [ -f program-id.txt ]; then
             PROGRAM_ID=$(cat program-id.txt)
             echo "$PROGRAM_ID" > PROGRAM_ID.devnet
