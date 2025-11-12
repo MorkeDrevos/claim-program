@@ -6,3 +6,5 @@ resolver = "2"
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
+[patch.crates-io]
+indexmap = "=2.0.2"
