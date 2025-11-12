@@ -6,4 +6,3 @@ resolver = "2"
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
-overflow-checks = true
