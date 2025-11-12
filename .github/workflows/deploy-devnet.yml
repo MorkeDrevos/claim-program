@@ -1,0 +1,82 @@
+name: Deploy Anchor (devnet)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "programs/**"
+      - "Anchor.toml"
+      - ".github/workflows/deploy-devnet.yml"
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # to commit program id file back if desired
+
+    env:
+      SOLANA_VERSION: "1.18.22"
+      ANCHOR_CLI_VERSION: "0.29.0"
+      CLUSTER: "devnet"
+      RPC_URL: ${{ secrets.SOLANA_RPC_URL }}  # optional; else public devnet
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/releases/${SOLANA_VERSION}/solana-release/bin" >> $GITHUB_PATH
+          solana --version
+
+      - name: Install Anchor
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor --tag v${ANCHOR_CLI_VERSION} anchor-cli --locked
+          anchor --version
+
+      - name: Configure keypair
+        run: |
+          mkdir -p ~/.config/solana
+          echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > ~/.config/solana/id.json
+          chmod 600 ~/.config/solana/id.json
+          solana config set --url "${{ env.RPC_URL || 'https://api.devnet.solana.com' }}"
+
+      - name: Build
+        run: anchor build
+
+      - name: Deploy (devnet)
+        run: |
+          anchor deploy --provider.cluster ${CLUSTER}
+          PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
+          echo "PROGRAM_ID=$PROGRAM_ID" | tee program-id.txt
+
+      - name: Export IDL
+        run: |
+          jq . target/idl/claim.json > idl.json
+          echo "{}" > _done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: claim-idl-and-program
+          path: |
+            program-id.txt
+            idl.json
+
+      # Optional: commit program id file back into repo
+      - name: Commit program id (optional)
+        if: always()
+        run: |
+          PROGRAM_ID=$(cat program-id.txt)
+          echo "$PROGRAM_ID" > PROGRAM_ID.devnet
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PROGRAM_ID.devnet
+          git commit -m "chore: update devnet program id -> $PROGRAM_ID" || echo "no changes"
+          git push
