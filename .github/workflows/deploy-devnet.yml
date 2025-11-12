@@ -14,37 +14,37 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write
+      contents: write  # needed if you want to commit PROGRAM_ID.devnet
 
     env:
       SOLANA_VERSION: "1.18.22"
       ANCHOR_CLI_VERSION: "0.29.0"
-      CLUSTER: devnet
+      CLUSTER: "devnet"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Toolchains: 1.74 to write a v3 lockfile, nightly to build
-      - name: Install Rust 1.74 (for v3 Cargo.lock)
-        uses: dtolnay/rust-toolchain@1.74.0
+      # ---------- Rust toolchain (Anchor 0.29 needs >= 1.76) ----------
+      - name: Install Rust 1.76
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.76.0"
 
-      - name: Install Rust nightly (for build)
-        uses: dtolnay/rust-toolchain@nightly
-
-      # Solana CLI
+      # ---------- Solana CLI ----------
       - name: Install Solana CLI (tarball)
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          curl -sSL -o solana.tar.bz2 \
+            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
           mkdir -p "$HOME/solana-release"
           tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
           echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/solana-release/bin:$PATH"
           solana --version
 
-      # Anchor CLI
+      # ---------- Anchor CLI ----------
       - name: Install Anchor CLI
         run: |
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
@@ -53,7 +53,7 @@ jobs:
       - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # Keypair + RPC
+      # ---------- Keypair + RPC ----------
       - name: Configure keypair & RPC
         shell: bash
         run: |
@@ -61,12 +61,16 @@ jobs:
           mkdir -p "$HOME/.config/solana"
           echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > "$HOME/.config/solana/id.json"
           chmod 600 "$HOME/.config/solana/id.json"
+
           RPC="${{ secrets.SOLANA_RPC_URL }}"
-          if [ -z "${RPC}" ]; then RPC="https://api.devnet.solana.com"; fi
+          if [ -z "${RPC}" ]; then
+            RPC="https://api.devnet.solana.com"
+          fi
+
           solana config set --url "$RPC"
           solana address
 
-      # --- Make sure no patch blocks remain anywhere (root or programs/*) ---
+      # ---------- Optional: strip old [patch.crates-io] blocks ----------
       - name: Sanitize Cargo.toml (remove [patch.crates-io] blocks)
         shell: bash
         run: |
@@ -83,52 +87,43 @@ jobs:
               echo "Removed [patch.crates-io] from $file"
             fi
           }
+
           sanitize Cargo.toml
-          find programs -maxdepth 2 -name Cargo.toml -print0 | while IFS= read -r -d '' f; do sanitize "$f"; done
+          find programs -maxdepth 2 -name Cargo.toml -print0 \
+            | while IFS= read -r -d '' f; do sanitize "$f"; done
 
-      # --- Create a v3 lockfile on Rust 1.74 and pin transitive versions ---
-      - name: Prepare v3 Cargo.lock (Rust 1.74, pin toml deps)
-        shell: bash
-        run: |
-         set -euo pipefail
-         rustup default 1.74.0
-         # start clean to avoid mismatched lockfiles
-         find . -name Cargo.lock -type f -print -delete || true
-         cargo generate-lockfile
-         # force-pin transitive versions to stay within Rust 1.74 compatibility
-         cargo update -p toml_edit --precise 0.23.2 || true
-         cargo update -p toml_datetime --precise 0.7.2 || true
-         echo "Lockfile header:"
-         head -n 5 Cargo.lock || true
-
-      # --- Build on nightly, do NOT touch the lockfile ---
+      # ---------- Build ----------
       - name: Build
-        env:
-          RUSTUP_TOOLCHAIN: nightly
         shell: bash
         run: |
           set -euo pipefail
           cargo clean || true
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
+      # ---------- Deploy to devnet ----------
       - name: Deploy (devnet)
-        env:
-          RUSTUP_TOOLCHAIN: nightly
         shell: bash
+        env:
+          CLUSTER: "${{ env.CLUSTER }}"
         run: |
           set -euo pipefail
           anchor deploy --provider.cluster "${CLUSTER}"
+
           if [ -f target/deploy/claim-keypair.json ]; then
             PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
             echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
+          else
+            echo "claim-keypair.json not found; skipping PROGRAM_ID export"
           fi
 
+      # ---------- Export IDL ----------
       - name: Export IDL
         shell: bash
         run: |
           set -euo pipefail
           cp target/idl/claim.json idl.json
 
+      # ---------- Upload artifacts ----------
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -137,6 +132,7 @@ jobs:
             program-id.txt
             idl.json
 
+      # ---------- Optionally commit PROGRAM_ID.devnet ----------
       - name: Commit program id (optional)
         if: always()
         shell: bash
