@@ -1,14 +1,21 @@
 name: Deploy Anchor (devnet)
 
 on:
-  # Manual runs from the GitHub UI
   workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "programs/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - ".github/workflows/deploy-devnet.yml"
 
 jobs:
   build-deploy:
-    # Force the job to always run when the workflow is triggered
-    if: ${{ always() }}
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     env:
       SOLANA_VERSION: "1.18.22"
@@ -19,7 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- Rust 1.76 (host toolchain) ----
+      # ---- Rust 1.76 ----
       - name: Install Rust 1.76
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -28,7 +35,7 @@ jobs:
       - name: Show rustc version
         run: rustc --version
 
-      # ---- Solana CLI (tarball) ----
+      # ---- Solana CLI ----
       - name: Install Solana CLI
         shell: bash
         run: |
@@ -51,8 +58,8 @@ jobs:
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
           anchor --version
 
-      # ---- jq (for IDL export) ----
-      - name: Install jq
+      # ---- jq for IDL export ----
+      - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
       # ---- Keypair + RPC ----
@@ -60,7 +67,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p "$HOME/.config/solana"
           echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > "$HOME/.config/solana/id.json"
           chmod 600 "$HOME/.config/solana/id.json"
@@ -73,7 +79,7 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # ---- Build program ----
+      # ---- Build ----
       - name: Build
         shell: bash
         run: |
@@ -86,7 +92,6 @@ jobs:
         run: |
           set -euo pipefail
           anchor deploy --provider.cluster "${CLUSTER}"
-
           if [ -f target/deploy/claim-keypair.json ]; then
             PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
             echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
@@ -101,7 +106,7 @@ jobs:
           set -euo pipefail
           cp target/idl/claim.json idl.json
 
-      # ---- Upload artifacts ----
+      # ---- Upload PROGRAM_ID + IDL ----
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
