@@ -35,13 +35,22 @@ jobs:
         run: rustc --version
 
       # ---- Solana CLI ----
-      - name: Install Solana CLI
+            - name: Install Solana CLI
         shell: bash
         run: |
           set -euo pipefail
-          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)" -- v${SOLANA_VERSION}
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+          # Download Solana CLI tarball from GitHub releases
+          curl -sSfL -o solana.tar.bz2 \
+            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+
+          mkdir -p "$HOME/solana-release"
+          tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
+
+          # Add Solana to PATH for this and all later steps
+          echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/solana-release/bin:$PATH"
+
           solana --version
 
       # ---- Anchor CLI ----
