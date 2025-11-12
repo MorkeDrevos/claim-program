@@ -6,5 +6,8 @@ resolver = "2"
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
+
 [patch.crates-io]
 indexmap = "=2.0.2"
+toml_edit = "=0.23.2"
+toml_datetime = "=0.7.2"
