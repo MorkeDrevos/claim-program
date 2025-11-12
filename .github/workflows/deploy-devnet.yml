@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- RUST TOOLCHAIN 1.76.0 (FIX rustc 1.75.0-dev) ----
+      # ---- RUST TOOLCHAIN 1.76.0 (fix rustc 1.75.0-dev issues) ----
       - name: Install Rust 1.76
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -34,21 +34,32 @@ jobs:
       - name: Show rustc version
         run: rustc --version
 
-      # ---- SOLANA CLI ----
+      # ---- SOLANA CLI via GitHub tarball (no release.solana.com installer) ----
       - name: Install Solana CLI
         shell: bash
         run: |
           set -euo pipefail
 
-          # Official Solana installer for v${SOLANA_VERSION}
-          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)" -- v${SOLANA_VERSION}
+          SOLANA_TARBALL_URL="https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          echo "Downloading Solana from $SOLANA_TARBALL_URL"
 
-          # Add Solana to PATH for this step and all later steps
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          curl -sSfL "$SOLANA_TARBALL_URL" -o solana.tar.bz2
+
+          mkdir -p "$HOME/solana-release"
+          tar -xjf solana.tar.bz2 -C "$HOME/solana-release" --strip-components=1
+
+          export PATH="$HOME/solana-release/bin:$PATH"
+          echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
+
+          echo "Solana bin dir:"
+          ls -la "$HOME/solana-release/bin"
+
+          echo "Which solana?"
+          which solana || { echo "solana not found on PATH"; exit 1; }
 
           solana --version
 
+      # ---- Anchor CLI ----
       - name: Install Anchor CLI
         run: |
           npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
@@ -57,6 +68,7 @@ jobs:
       - name: Install jq (for IDL export)
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      # ---- Keypair & RPC ----
       - name: Configure keypair & RPC
         shell: bash
         run: |
@@ -73,10 +85,7 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # 🚫 IMPORTANT: we REMOVED the "Sanitize Cargo.toml" step here
-      # so your [patch.crates-io] section with toml_edit = "=0.23.2"
-      # and toml_parser = "=1.0.3" stays in place.
-
+      # ⚠️ No Cargo.toml “sanitize” step — your patches stay as-is
       - name: Build
         shell: bash
         run: |
