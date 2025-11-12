@@ -3,7 +3,7 @@ name: Deploy Anchor (devnet)
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
       - "programs/**"
       - "Anchor.toml"
@@ -17,15 +17,48 @@ jobs:
       contents: write  # needed if you want to commit PROGRAM_ID.devnet
 
     env:
-      CLUSTER: devnet
-      ANCHOR_DOCKER_TAG: "latest"  # match your Anchor version
+      SOLANA_VERSION: "1.18.22"
+      ANCHOR_CLI_VERSION: "0.29.0"
+      CLUSTER: "devnet"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Write the Solana keypair on the host (will be mounted into Docker)
-      - name: Write Solana keypair
+      # ---- Rust toolchain (1.76) ----
+      - name: Install Rust 1.76
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.76.0
+
+      - name: Show rustc version
+        run: rustc --version
+
+      # ---- Solana CLI ----
+      - name: Install Solana CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Official installer for v${SOLANA_VERSION}
+          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)" -- v${SOLANA_VERSION}
+
+          # Add Solana to PATH for this and later steps
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+          solana --version
+
+      # ---- Anchor CLI ----
+      - name: Install Anchor CLI
+        run: |
+          npm install -g @coral-xyz/anchor-cli@${ANCHOR_CLI_VERSION}
+          anchor --version
+
+      - name: Install jq (for IDL export)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # ---- Keypair + RPC ----
+      - name: Configure keypair & RPC
         shell: bash
         run: |
           set -euo pipefail
@@ -33,53 +66,56 @@ jobs:
           echo '${{ secrets.SOLANA_KEYPAIR_JSON }}' > "$HOME/.config/solana/id.json"
           chmod 600 "$HOME/.config/solana/id.json"
 
-      # Build & deploy completely INSIDE Anchor's Docker image
-      - name: Build & Deploy via Anchor Docker
-        env:
-          RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          RPC="${{ secrets.SOLANA_RPC_URL }}"
+          if [ -z "$RPC" ]; then
+            RPC="https://api.devnet.solana.com"
+          fi
+
+          solana config set --url "$RPC"
+          solana address
+
+      # ---- Pin problematic crate versions in Cargo.lock ----
+      - name: Pin dependency versions
         shell: bash
         run: |
           set -euo pipefail
+          # These commands only adjust Cargo.lock on the runner.
+          # If a crate isn't present, the command just prints an error and we ignore it.
+          cargo update -p toml_datetime --precise 0.7.2 || true
+          cargo update -p toml_edit     --precise 0.23.2 || true
+          cargo update -p toml_parser   --precise 0.6.3  || true
+          cargo update -p indexmap      --precise 2.2.6  || true
 
-          # Fallback to public devnet RPC if secret is empty
-          if [ -z "${RPC_URL:-}" ]; then
-            RPC_URL="https://api.devnet.solana.com"
+      # ---- Build program ----
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANCHOR_NO_CONFIG_WARN=1 anchor build
+
+      # ---- Deploy to devnet ----
+      - name: Deploy (devnet)
+        shell: bash
+        run: |
+          set -euo pipefail
+          anchor deploy --provider.cluster "${CLUSTER}"
+
+          if [ -f target/deploy/claim-keypair.json ]; then
+            PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
+            echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
+          else
+            echo "No claim-keypair.json found – did build succeed?"
           fi
 
-          echo "Using RPC_URL=$RPC_URL"
+      # ---- Export IDL ----
+      - name: Export IDL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp target/idl/claim.json idl.json
 
-          docker run --rm \
-            -v "$PWD":/workdir \
-            -v "$HOME/.config/solana:/root/.config/solana:ro" \
-            -w /workdir \
-            -e ANCHOR_PROVIDER_URL="$RPC_URL" \
-            -e CLUSTER="$CLUSTER" \
-            docker run --rm ... solanafoundation/anchor:0.29.0 ... \
-            bash -lc '
-              set -euo pipefail
-              echo "Anchor version inside container:"
-              anchor --version
-              echo "Solana version inside container:"
-              solana --version
-
-              # Make sure Solana uses the same RPC URL
-              solana config set --url "$ANCHOR_PROVIDER_URL"
-
-              # Build & deploy
-              anchor build
-              anchor deploy --provider.cluster "$CLUSTER"
-
-              # Export program id (if keypair exists)
-              if [ -f target/deploy/claim-keypair.json ]; then
-                solana address -k target/deploy/claim-keypair.json > program-id.txt
-              fi
-
-              # Export IDL
-              cp target/idl/claim.json idl.json
-            '
-
-      - name: Upload artifacts (PROGRAM_ID + IDL)
-        if: always()
+      # ---- Upload artifacts (PROGRAM_ID + IDL) ----
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: claim-idl-and-program
@@ -87,6 +123,7 @@ jobs:
             program-id.txt
             idl.json
 
+      # ---- Optionally commit PROGRAM_ID.devnet back to repo ----
       - name: Commit program id (optional)
         if: always()
         shell: bash
@@ -94,8 +131,10 @@ jobs:
           if [ -f program-id.txt ]; then
             PROGRAM_ID=$(cat program-id.txt)
             echo "$PROGRAM_ID" > PROGRAM_ID.devnet
+
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
+
             git add PROGRAM_ID.devnet || true
             git commit -m "chore: update devnet program id -> $PROGRAM_ID" || echo "no changes"
             git push || true
