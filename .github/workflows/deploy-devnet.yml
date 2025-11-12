@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- Rust toolchain (1.76) ----
+      # ---- Rust 1.76 ----
       - name: Install Rust 1.76
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -39,13 +39,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Official installer for v${SOLANA_VERSION}
           sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)" -- v${SOLANA_VERSION}
-
-          # Add Solana to PATH for this and later steps
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-
           solana --version
 
       # ---- Anchor CLI ----
@@ -74,19 +70,19 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # ---- Pin problematic crate versions in Cargo.lock ----
+      # ---- Pin versions in Cargo.lock on the runner ----
       - name: Pin dependency versions
         shell: bash
         run: |
           set -euo pipefail
-          # These commands only adjust Cargo.lock on the runner.
-          # If a crate isn't present, the command just prints an error and we ignore it.
-          cargo update -p toml_datetime --precise 0.7.2 || true
-          cargo update -p toml_edit     --precise 0.23.2 || true
-          cargo update -p toml_parser   --precise 0.6.3  || true
-          cargo update -p indexmap      --precise 2.2.6  || true
+          # Older versions that work with Solana's SBF rustc (1.75-dev-ish).
+          # If some of these crates are not present, the command just fails and we ignore it.
+          cargo update -p toml_datetime --precise 0.6.3 || true
+          cargo update -p toml_edit     --precise 0.21.1 || true
+          cargo update -p toml_parser   --precise 0.6.3 || true
+          cargo update -p indexmap      --precise 2.2.6 || true
 
-      # ---- Build program ----
+      # ---- Build ----
       - name: Build
         shell: bash
         run: |
@@ -99,12 +95,11 @@ jobs:
         run: |
           set -euo pipefail
           anchor deploy --provider.cluster "${CLUSTER}"
-
           if [ -f target/deploy/claim-keypair.json ]; then
             PROGRAM_ID=$(solana address -k target/deploy/claim-keypair.json)
             echo "PROGRAM_ID=${PROGRAM_ID}" | tee program-id.txt
           else
-            echo "No claim-keypair.json found – did build succeed?"
+            echo "target/deploy/claim-keypair.json missing – did the build succeed?"
           fi
 
       # ---- Export IDL ----
@@ -114,7 +109,7 @@ jobs:
           set -euo pipefail
           cp target/idl/claim.json idl.json
 
-      # ---- Upload artifacts (PROGRAM_ID + IDL) ----
+      # ---- Upload PROGRAM_ID + IDL ----
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -123,7 +118,7 @@ jobs:
             program-id.txt
             idl.json
 
-      # ---- Optionally commit PROGRAM_ID.devnet back to repo ----
+      # ---- Optionally commit PROGRAM_ID.devnet ----
       - name: Commit program id (optional)
         if: always()
         shell: bash
