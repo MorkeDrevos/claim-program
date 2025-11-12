@@ -46,11 +46,18 @@ jobs:
           echo "PATH after add: $PATH"
           "$HOME/solana-release/bin/solana" --version
 
-      - name: Install Anchor CLI
+      # (Keep your steps above as-is: Checkout, Install deps, Install Rust, Install Solana CLI)
+
+      - name: Install Anchor via AVM (prebuilt)
         shell: bash
         run: |
           set -euo pipefail
-          cargo install --git https://github.com/coral-xyz/anchor --tag v${ANCHOR_CLI_VERSION} anchor-cli --locked
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          avm --version
+          avm install ${ANCHOR_CLI_VERSION}
+          avm use ${ANCHOR_CLI_VERSION}
+          echo "$HOME/.avm/bin" >> $GITHUB_PATH
           anchor --version
 
       - name: Configure keypair & RPC
