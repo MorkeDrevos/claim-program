@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- RUST TOOLCHAIN 1.76.0 (fix rustc 1.75.0-dev issues) ----
+      # ---- RUST TOOLCHAIN 1.76.0 ----
       - name: Install Rust 1.76
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -34,7 +34,7 @@ jobs:
       - name: Show rustc version
         run: rustc --version
 
-      # ---- SOLANA CLI via GitHub tarball (no release.solana.com installer) ----
+      # ---- SOLANA CLI via GitHub tarball ----
       - name: Install Solana CLI
         shell: bash
         run: |
@@ -85,7 +85,18 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # ⚠️ No Cargo.toml “sanitize” step — your patches stay as-is
+      # ---- Pin problematic deps in Cargo.lock (no [patch] needed) ----
+      - name: Pin dependency versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          # These downgrade a few crates in Cargo.lock so they compile on Solana's Rust
+          cargo update -p toml_datetime --precise 0.7.1 || true
+          cargo update -p toml_edit     --precise 0.22.9 || true
+          cargo update -p toml_parser   --precise 0.2.0  || true
+          cargo update -p indexmap      --precise 2.2.6  || true
+
+      # ---- Build Anchor program ----
       - name: Build
         shell: bash
         run: |
@@ -94,6 +105,7 @@ jobs:
           cargo clean || true
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
+      # ---- Deploy to devnet ----
       - name: Deploy (devnet)
         shell: bash
         run: |
