@@ -74,8 +74,10 @@ jobs:
           rustup default nightly
           cargo clean || true
           rm -rf target || true
+          # bump Cargo.lock v4 deterministically
           cargo +nightly update -Z next-lockfile-bump
-          anchor build -- --locked
+          # plain build (no --locked passthrough)
+          ANCHOR_NO_CONFIG_WARN=1 anchor build
 
       # ---- Deploy ----
       - name: Deploy (devnet)
