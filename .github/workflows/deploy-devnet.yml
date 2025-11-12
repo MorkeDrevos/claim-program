@@ -26,11 +26,9 @@ jobs:
         uses: actions/checkout@v4
 
       # --- Toolchains ---
-      # 1) Older stable used ONLY to write a v3 Cargo.lock
       - name: Install Rust 1.74 (for v3 Cargo.lock)
         uses: dtolnay/rust-toolchain@1.74.0
 
-      # 2) Nightly used for the actual build
       - name: Install Rust nightly (for build)
         uses: dtolnay/rust-toolchain@nightly
 
@@ -68,34 +66,37 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # --- Force-lockfile as v3 with Rust 1.74 ---
-      - name: Prepare v3 Cargo.lock (delete & regenerate with 1.74)
+      # --- Force-lockfile v3 AND pin toml* to rustc-1.75-compatible versions ---
+      - name: Prepare v3 Cargo.lock (pin deps on 1.74)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Repo root: $GITHUB_WORKSPACE"
           cd "$GITHUB_WORKSPACE"
+
           # wipe any existing lockfiles (root or nested)
           find . -name Cargo.lock -type f -print -delete || true
-          # regenerate using Rust 1.74 (writes v3 lockfile)
+
+          # generate v3 lockfile with rust 1.74, then pin the crates
           rustup run 1.74.0 cargo generate-lockfile
-          echo "Lockfile header:"
+          rustup run 1.74.0 cargo update -p toml_datetime --precise 0.7.2
+          rustup run 1.74.0 cargo update -p toml_edit      --precise 0.22.9
+
+          # verify pins landed in the lockfile
+          grep -A1 'name = "toml_datetime"' Cargo.lock || true
+          grep -A1 'name = "toml_edit"'      Cargo.lock || true
           head -n 5 Cargo.lock || true
 
-      # --- Build with NIGHTLY but DO NOT rewrite the lockfile ---
+      # --- Build with nightly WITHOUT touching the lockfile ---
       - name: Build
-        env:
-          RUSTUP_TOOLCHAIN: nightly
+        env: { RUSTUP_TOOLCHAIN: nightly }
         shell: bash
         run: |
           set -euo pipefail
           cargo clean || true
-          # ensure we don't rewrite Cargo.lock to v4
           ANCHOR_NO_CONFIG_WARN=1 anchor build
 
       - name: Deploy (devnet)
-        env:
-          RUSTUP_TOOLCHAIN: nightly
+        env: { RUSTUP_TOOLCHAIN: nightly }
         shell: bash
         run: |
           set -euo pipefail
