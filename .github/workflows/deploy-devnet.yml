@@ -79,18 +79,6 @@ jobs:
           solana config set --url "$RPC"
           solana address
 
-      # ---- Pin versions in Cargo.lock on the runner ----
-      - name: Pin dependency versions
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Older versions that work with Solana's SBF rustc (1.75-dev-ish).
-          # If some of these crates are not present, the command just fails and we ignore it.
-          cargo update -p toml_datetime --precise 0.6.3 || true
-          cargo update -p toml_edit     --precise 0.21.1 || true
-          cargo update -p toml_parser   --precise 0.6.3 || true
-          cargo update -p indexmap      --precise 2.2.6 || true
-
       # ---- Build ----
       - name: Build
         shell: bash
