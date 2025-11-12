@@ -1,6 +1,7 @@
+# Cargo.toml (root)
 [workspace]
 members = ["programs/claim"]
-resolver = "2"        # <— add this
+resolver = "2"
 
 [profile.release]
 lto = "fat"
@@ -8,5 +9,6 @@ codegen-units = 1
 opt-level = "s"
 
 [patch.crates-io]
-toml_edit = { version = "=0.22.9", package = "toml_edit" }
-toml_datetime = { version = "=0.7.2", package = "toml_datetime" }
+# satisfy ^0.23.2 while staying Rust 1.75 compatible
+toml_edit     = { version = "=0.23.2", package = "toml_edit" }
+toml_datetime = { version = "=0.7.2",  package = "toml_datetime" }
