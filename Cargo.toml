@@ -6,3 +6,7 @@ resolver = "2"        # <— add this
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
+
+[patch.crates-io]
+toml_edit = { version = "=0.22.9", package = "toml_edit" }
+toml_datetime = { version = "=0.7.2", package = "toml_datetime" }
