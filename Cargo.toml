@@ -6,3 +6,9 @@ resolver = "2"
 lto = "fat"
 codegen-units = 1
 opt-level = "s"
+
+[patch.crates-io]
+# Versions that still compile with Solana's rustc 1.75.0-dev
+toml_datetime = "=0.7.1"
+toml_edit     = "=0.22.9"
+toml_parser   = "=0.2.0"
