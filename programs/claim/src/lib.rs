@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::sysvar::{self, Sysvar}; // 👈 this fixes the get() error
+use anchor_lang::solana_program::sysvar::{self, Sysvar}; // 👈 fixes the get() error
 
 declare_id!("CLA1m111111111111111111111111111111111111111");
 
@@ -8,25 +8,24 @@ pub mod claim {
     use super::*;
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
-        // Safe bump access on Anchor 0.29
+        // Get bump safely from Anchor 0.29 Context
         let escrow_auth_bump = *ctx
             .bumps
             .get("escrow_auth")
             .expect("escrow_auth bump not found");
 
-        // Example usage of signer seeds
-        let _signer_seeds: &[&[u8]] = &[b"escrow_auth", &[escrow_auth_bump]];
+        // Optional: get the current network clock
+        let clock = Clock::get()?; // 👈 now compiles correctly
+        msg!("Timestamp: {}", clock.unix_timestamp);
 
-        // Example sysvar access (this is where get() lives)
-        let _clock = Clock::get()?; // 👈 now compiles, since we imported Sysvar
-        msg!("Blocktime: {}", _clock.unix_timestamp);
-
-        // simple counter increment
+        // Example logic: increment a counter
         let pool = &mut ctx.accounts.pool;
         pool.total_claims = pool
             .total_claims
             .checked_add(1)
             .ok_or(ErrorCode::MathOverflow)?;
+
+        msg!("Claim processed. Total claims: {}", pool.total_claims);
 
         Ok(())
     }
@@ -37,7 +36,7 @@ pub struct Claim<'info> {
     #[account(mut)]
     pub claimer: Signer<'info>,
 
-    /// CHECK: PDA authority (seed + bump ensures safety)
+    /// CHECK: PDA authority (bump ensures safety)
     #[account(
         seeds = [b"escrow_auth"],
         bump
