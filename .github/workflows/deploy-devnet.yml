@@ -30,19 +30,16 @@ jobs:
 
       # ---- Solana CLI from release tarball ----
       - name: Install Solana CLI (tarball)
-  shell: bash
-  run: |
-    set -euo pipefail
-    curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
-    mkdir -p "$HOME/solana-release"
-    tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
-
-    # make it available to subsequent steps
-    echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
-    # make it available to THIS step
-    export PATH="$HOME/solana-release/bin:$PATH"
-
-    solana --version
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL -o solana.tar.bz2 "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          mkdir -p "$HOME/solana-release"
+          tar -xjf solana.tar.bz2 --strip-components=1 -C "$HOME/solana-release"
+          # make available to later steps AND this step
+          echo "$HOME/solana-release/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/solana-release/bin:$PATH"
+          solana --version
 
       # ---- Anchor prebuilt binary (no compiling) ----
       - name: Install Anchor (prebuilt tarball)
@@ -51,11 +48,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/bin"
           echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
-
           ARCH="x86_64-unknown-linux-gnu"
           VER="${ANCHOR_CLI_VERSION:-0.29.0}"
           URL="https://github.com/coral-xyz/anchor/releases/download/v${VER}/anchor-cli-v${VER}-${ARCH}.tar.gz"
-
           echo "Downloading $URL"
           curl -Ls "$URL" | tar -xz -C "$GITHUB_WORKSPACE/bin"
           chmod +x "$GITHUB_WORKSPACE/bin/anchor"
