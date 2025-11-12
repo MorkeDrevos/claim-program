@@ -7,11 +7,9 @@ lto = "fat"
 codegen-units = 1
 opt-level = "s"
 
-# ---------------------------------------------------
-# Patches to force versions compatible with Solana’s SBF toolchain
-# ---------------------------------------------------
+# 🔧 Pin TOML + indexmap crates so they work with Solana's SBF rustc
 [patch.crates-io]
 indexmap      = "=2.2.6"
 toml_datetime = "=0.6.3"
-toml_edit     = "=0.21.1"
+toml_edit     = "=0.22.2"
 toml_parser   = "=0.6.3"
