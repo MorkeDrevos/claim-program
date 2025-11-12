@@ -7,7 +7,9 @@ lto = "fat"
 codegen-units = 1
 opt-level = "s"
 
-# 👇 Force crates to versions that work with Solana's Rust (1.75.x dev)
+# ---------------------------------------------------
+# Patches to force versions compatible with Solana’s SBF toolchain
+# ---------------------------------------------------
 [patch.crates-io]
 indexmap      = "=2.2.6"
 toml_datetime = "=0.6.3"
